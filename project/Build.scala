@@ -67,13 +67,13 @@ class BlueBuild extends Build {
     "org.gnieh" %% "tekstlib" % "0.1.0-SNAPSHOT",
     "org.gnieh" %% "sohva-client" % "2.0.0-SNAPSHOT",
     "org.gnieh" %% "sohva-entities" % "2.0.0-SNAPSHOT",
+    "org.gnieh" %% "sohva-dm" % "2.0.0-SNAPSHOT",
     "org.gnieh" %% "diffson" % "1.0.0",
     "javax.mail" % "mail" % "1.4.7",
     "ch.qos.logback" % "logback-classic" % "1.1.3",
     "org.slf4j" % "jcl-over-slf4j" % "1.7.12",
     "com.jsuereth" %% "scala-arm" % "1.4",
-    "com.typesafe" % "config" % "1.3.0",
-    "org.joda" % "joda-convert" % "1.7"
+    "com.typesafe" % "config" % "1.3.0"
   )
 
 }
