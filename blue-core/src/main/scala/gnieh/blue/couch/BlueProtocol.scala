@@ -21,6 +21,7 @@ import spray.json._
 import gnieh.sohva._
 
 import permission._
+import http._
 
 trait BlueProtocol extends SohvaProtocol {
 
@@ -64,5 +65,7 @@ trait BlueProtocol extends SohvaProtocol {
   implicit val usersGroupsFormat = jsonFormat2(UsersGroups)
 
   implicit val paperRoleFormat = couchFormat[PaperRole]
+
+  implicit val errorResponseFormat = jsonFormat2(ErrorResponse)
 
 }
