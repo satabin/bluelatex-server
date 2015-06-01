@@ -54,11 +54,14 @@ class BlueServer(configuration: Config)(implicit system: ActorSystem) {
 
 private class ServerActor(system: ActorSystem, config: Config) extends HttpServiceActor {
 
+  val apiPrefix =
+    pathPrefix(separateOnSlashes(config.getString("blue.api.path-prefix")))
+
   val routes = {
     val actors = for {
       (path, StringValue(actorClass)) <- config.getConfig("blue.api.routes")
-      actor = system.actorOf(Props(Class.forName(actorClass)))
-    } yield pathPrefixTest(separateOnSlashes(path)) { ctx => actor ! ctx }
+      service = system.actorOf(Props(Class.forName(actorClass)))
+    } yield pathPrefixTest(separateOnSlashes(path)) { ctx => service ! ctx }
     if (actors.isEmpty)
       reject
     else if (actors.size == 1)
@@ -67,6 +70,6 @@ private class ServerActor(system: ActorSystem, config: Config) extends HttpServi
       actors.reduce(_ ~ _)
   }
 
-  def receive = runRoute(routes)
+  def receive = runRoute(apiPrefix(routes))
 
 }
