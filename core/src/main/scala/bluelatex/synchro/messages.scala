@@ -14,33 +14,8 @@
  * limitations under the License.
  */
 package bluelatex
+package synchro
 
-import spray.json._
+case object CreatePaper
 
-import synchro._
-import persistence._
-
-import better.files._
-
-trait BlueLaTeXProtocol extends SyncJsonProtocol {
-
-  implicit object pathTreeWriter extends JsonWriter[PathTree] {
-
-    def write(tree: PathTree): JsObject =
-      tree match {
-        case PathLeaf =>
-          JsObject(
-            Map(
-              "type" -> JsString("leaf")))
-        case PathNode(children) =>
-          JsObject(
-            Map(
-              "type" -> JsString("node"),
-              "children" -> children.mapValues(write(_)).toJson))
-      }
-
-  }
-
-}
-
-object BlueLaTeXProtocol extends BlueLaTeXProtocol
+case object DeletePaper

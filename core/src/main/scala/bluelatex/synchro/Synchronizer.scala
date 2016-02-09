@@ -16,6 +16,8 @@
 package bluelatex
 package synchro
 
+import config._
+
 import akka.actor.{
   Actor,
   ActorRef,
@@ -26,7 +28,14 @@ import scala.collection.mutable.Map
 
 import name.fraser.neil.plaintext.DiffMatchPatch
 
-class Synchronizer(store: ActorRef) extends Actor {
+import com.typesafe.config.ConfigFactory
+
+class Synchronizer extends Actor {
+
+  val conf = ConfigFactory.load()
+
+  def storeProps(paperId: String) =
+    Props(Class.forName(conf.as[String]("bluelatex.persistence.store")), paperId)
 
   val dmp = new DiffMatchPatch
 
@@ -38,7 +47,7 @@ class Synchronizer(store: ActorRef) extends Actor {
         ref
       case None =>
         // create the paper
-        val act = context.actorOf(Props(classOf[Paper], paperId, store, dmp), paperId)
+        val act = context.actorOf(Props(classOf[Paper], paperId, storeProps(paperId), dmp), paperId)
         context.watch(act)
         papers(paperId) = act
         act

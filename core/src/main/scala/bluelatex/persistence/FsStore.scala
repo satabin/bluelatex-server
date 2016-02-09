@@ -18,22 +18,8 @@ package persistence
 
 import akka.actor.{
   Actor,
-  ActorRef,
-  ActorSystem,
-  PoisonPill,
-  Props,
-  ReceiveTimeout,
-  Status,
-  Terminated
+  Status
 }
-import akka.util.Timeout
-import akka.pattern.ask
-
-import scala.concurrent.{
-  Future,
-  ExecutionContext
-}
-import scala.concurrent.duration._
 
 import scala.io.Codec
 
@@ -60,95 +46,186 @@ object FsStore {
 
 }
 
-class FsStore(file: File, extensions: Set[String]) extends Actor {
+/** Represents a file system tree and synchronizes string content with it.
+ *  For the moment it assumes that the string files are not modified by someone else.
+ *  This could be done by using file reconciliation algorithm in the future.
+ *
+ *  @author Lucas Satabin
+ */
+class FsTree(private val file: File) {
+
+  import scala.collection.mutable.Map
 
   import FsStore._
 
+  private val _children =
+    Map.empty[String, FsTree]
+  private var _content: Option[String] =
+    None
+  private var _lastModified: Long =
+    -1
+  private var _deleted =
+    false
+
+  def keys(): PathTree =
+    ???
+
+  def save(): Unit =
+    if (_deleted) {
+      // this node was deleted, then remove from FS (with potential children in case of directory)
+      file.delete()
+    } else _content match {
+      case Some(c) =>
+        // let's save it if needed
+        if (_lastModified > file.lastModifiedTime.toEpochMilli)
+          file.overwrite(c)(codec)
+      case None =>
+        // save the children and clear deleted ones
+        for ((f, child) <- _children) {
+          child.save()
+          if (child.deleted) {
+            _children -= f
+          }
+        }
+    }
+
+  def load(): Unit =
+    if (file.isDirectory) {
+      _deleted = false
+      _lastModified = file.lastModifiedTime.toEpochMilli
+      _content = None
+      for ((f, child) <- _children) {
+        if (child.deleted) {
+          _children -= f
+        } else {
+          child.load()
+        }
+      }
+    } else if (file.exists) {
+      _deleted = false
+      _lastModified = file.lastModifiedTime.toEpochMilli
+      _children.clear()
+      _content = Option(file.contentAsString(codec))
+    }
+
+  def deleted =
+    _deleted
+
+  def update(key: List[String], content: String): Unit = key match {
+    case f :: rest =>
+      val child = _children.getOrElseUpdate(f, new FsTree(file / f))
+      child(rest) = content
+      if (_deleted) {
+        _deleted = false
+        _lastModified = System.currentTimeMillis
+      }
+    case Nil =>
+      _content = Option(content)
+      _lastModified = System.currentTimeMillis
+      if (_deleted)
+        _deleted = false
+  }
+
+  def remove(key: List[String]): Unit = key match {
+    case f :: rest =>
+      _children.get(f).foreach(_.remove(rest))
+    case Nil =>
+      // clear content and mark as deleted
+      _content = None
+      _lastModified = -1
+      _children.clear()
+      _deleted = true
+  }
+
+  def get(key: List[String]): Option[String] =
+    if (_deleted)
+      None
+    else
+      key match {
+        case f :: rest =>
+          _children.get(f).flatMap(_.get(rest))
+        case Nil =>
+          if (_content.isEmpty && file.exists && !file.isDirectory) {
+            // the file exists on FS but was not loaded, just do it
+            load()
+          }
+          _content
+      }
+}
+
+class FsStore(paperId: String) extends Actor {
+
   val conf = ConfigFactory.load()
 
-  // set an initial delay, if no message is received within this period, the actor is killed
-  context.setReceiveTimeout(conf.as[Duration]("bluelatex.persistence.fs.timeout"))
+  val persistenceDir =
+    conf.as[File]("bluelatex.persistence.fs.directory")
+
+  val base = persistenceDir / paperId
+
+  private var files = new FsTree(base)
+
+  override def postStop(): Unit = {
+    super.postStop()
+    // save one last time
+    files.save()
+  }
 
   def receive = {
 
-    case Save(data) =>
-
+    case Save(file, data) =>
       try {
-        save(file, data)
-        sender ! Unit
+        files(file) = data
+        sender ! Saved(file)
       } catch {
         case e: Exception =>
           sender ! Status.Failure(e)
       }
 
-    case Delete(p) =>
+    case SaveFile(path, origin) =>
       try {
-        delete(file, p)
-        sender ! Unit
+        origin.moveTo(base / path.mkString("/"))
+        sender ! Saved(path)
       } catch {
         case e: Exception =>
           sender ! Status.Failure(e)
       }
 
-    case Load(p) =>
+    case Remove(file) =>
       try {
-        sender ! load(file, p)
+        files.remove(file)
+        sender ! Removed(file)
       } catch {
         case e: Exception =>
           sender ! Status.Failure(e)
       }
 
-    case ReceiveTimeout =>
-      context.stop(self)
+    case Read(file) =>
+      try {
+        val c = files.get(file)
+        sender ! Content(file, c)
+      } catch {
+        case e: Exception =>
+          sender ! Status.Failure(e)
+      }
+
+    case Commit =>
+      try {
+        val c = files.save()
+        sender ! Committed
+      } catch {
+        case e: Exception =>
+          sender ! Status.Failure(e)
+      }
+
+    case ListAll =>
+      try {
+        val k = files.keys()
+        sender ! AllKeys(k)
+      } catch {
+        case e: Exception =>
+          sender ! Status.Failure(e)
+      }
 
   }
-
-  private def save(file: File, data: Data): Unit =
-    if (data.size > 0) {
-
-      if (file.exists && !file.isDirectory)
-        file.delete()
-      mkdirs(file)
-
-      for ((name, d) <- data.children)
-        save(file / name, d)
-
-    } else data.content match {
-      case Some(c) =>
-        if (!file.exists || data.lastChanged > file.lastModifiedTime.toEpochMilli)
-          file.overwrite(c)(codec)
-      case None =>
-        mkdirs(file)
-    }
-
-  @tailrec
-  private def delete(file: File, path: List[String]): Unit =
-    path match {
-      case Nil    => file.delete()
-      case h :: t => delete(file / h, t)
-    }
-
-  private def load(file: File, path: List[String]): Option[Data] =
-    path match {
-      case Nil =>
-        file match {
-          case Directory(files) =>
-            val children =
-              for {
-                f <- files
-                d <- load(f, Nil)
-              } yield (f.name, d)
-            Some(Data(children = children.toMap))
-          case f @ RegularFile(_) =>
-            if (extensions.isEmpty || f.extension.isEmpty || extensions.contains(f.extension.get))
-              Some(Data(f.contentAsString(codec)))
-            else
-              None
-          case _ =>
-            None
-        }
-      case h :: t =>
-        load(file / h, t)
-    }
 
 }

@@ -41,7 +41,7 @@ trait PaperService {
       pathEndOrSingleSlash {
         post {
           val newId = UUID.randomUUID.toString
-          onSuccess((store ? Save(Data(newId -> Data())))) { _ =>
+          onSuccess(synchronizer ? (newId -> CreatePaper)) { _ =>
             complete(JsString(newId))
           }
         }
@@ -49,46 +49,34 @@ trait PaperService {
         pathPrefix(Segment) { paperId =>
           pathEndOrSingleSlash {
             delete {
-              (persistenceDir / paperId).delete()
-              complete(JsBoolean(true))
+              onSuccess(synchronizer ? (paperId -> DeletePaper)) { _ =>
+                complete(JsBoolean(true))
+              }
             }
           } ~
             pathPrefix("files") {
               pathEndOrSingleSlash {
                 get {
-                  complete((persistenceDir / paperId).toJson)
+                  onSuccess((synchronizer ? (paperId -> ListAll)).mapTo[PathTree]) { paths =>
+                    complete(paths.toJson)
+                  }
                 }
               } ~
-                getFromDirectory((persistenceDir / paperId).toString) ~
                 post {
-                  extractUnmatchedPath { path =>
-                    val local =
-                      if (path.startsWithSlash)
-                        path.dropChars(1).toString
-                      else
-                        path.toString
-                    mkdirs(persistenceDir / paperId / local)
+                  path(Segments) { path =>
                     uploadedFile("file") {
                       case (metadata, file) =>
-                        val f = file.toScala
-                        f.moveTo(local / metadata.fileName)
-                        complete(JsBoolean(true))
+                        onSuccess(synchronizer ? (paperId -> SaveFile(path, file.toScala))) { _ =>
+                          complete(JsBoolean(true))
+                        }
                     } ~
                       complete(JsBoolean(true))
                   }
                 } ~
                 delete {
-                  extractUnmatchedPath { path =>
-                    val local =
-                      if (path.startsWithSlash)
-                        persistenceDir / paperId / path.dropChars(1).toString
-                      else
-                        persistenceDir / paperId / path.toString
-                    if (local.exists) {
-                      local.delete()
+                  path(Segments) { path =>
+                    onSuccess(synchronizer ? (paperId -> DeleteDoc(path))) { _ =>
                       complete(JsBoolean(true))
-                    } else {
-                      complete(JsBoolean(false))
                     }
                   }
                 }

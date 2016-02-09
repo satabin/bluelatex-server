@@ -42,17 +42,8 @@ class CoreService(system: ActorSystem) extends Service(system) with PaperService
   val conf =
     ConfigFactory.load()
 
-  val persistenceDir =
-    conf.as[File]("bluelatex.persistence.fs.directory")
-
-  val synchronizedExtensions =
-    conf.as[Set[String]]("bluelatex.synchronization.extensions.latex")
-
-  val store =
-    system.actorOf(Props(classOf[FsStore], persistenceDir, synchronizedExtensions), "bluelatex-store")
-
   val synchronizer =
-    system.actorOf(Props(classOf[Synchronizer], store), "bluelatex-synchronizer")
+    system.actorOf(Props[Synchronizer], "bluelatex-synchronizer")
 
   def route =
     path("info") {

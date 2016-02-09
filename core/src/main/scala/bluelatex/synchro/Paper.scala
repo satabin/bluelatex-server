@@ -16,11 +16,7 @@
 package bluelatex
 package synchro
 
-import persistence.{
-  Load => PLoad,
-  Save => PSave,
-  Delete => PDelete
-}
+import persistence._
 
 import scala.collection.mutable.Map
 import akka.actor.{
@@ -50,9 +46,12 @@ import java.io.FileNotFoundException
  */
 class Paper(
   paperId: PaperId,
-  store: ActorRef,
+  storeProps: Props,
   dmp: DiffMatchPatch)
     extends Actor with Stash {
+
+  private var store: ActorRef =
+    null
 
   private val messageBus =
     new MessageEventBus
@@ -71,37 +70,25 @@ class Paper(
         act
     }
 
-  private var lastModificationTime = Calendar.getInstance().getTime()
-
   val logger = Logging(context.system, this)
 
   override def preStart(): Unit = {
-    // the paper is loaded
-    store ! PLoad(List(paperId))
+    // instantiate the store
+    store = context.actorOf(storeProps)
   }
 
-  def receive = starting
+  def receive = started(Calendar.getInstance().getTime())
 
-  def starting: Receive = {
-    case d: Data =>
-      unstashAll()
-      context.become(started(d, Calendar.getInstance().getTime()))
+  def started(lastModificationTime: Date): Receive = {
 
-    case Status.Failure(_: FileNotFoundException) =>
-      // if it does not exist yet, just use a fresh one
-      unstashAll()
-      context.become(started(Data(), Calendar.getInstance().getTime()))
+    case r: persistence.Request =>
+      store.forward(r)
 
-    case Status.Failure(e) =>
-      // log the error and stop actor
-      logger.error(f"Error while loading synchornization actor for $paperId", e)
+    case DeletePaper =>
+      // remove the root node
+      store ! Remove(Nil)
+      // stop this actor
       context.stop(self)
-
-    case SynchronizationMessage(_, _, _) | PersistPaper | GetLastModificationDate | GetDoc(_) | DeleteDoc(_) | UpdateDoc(_, _) =>
-      stash()
-  }
-
-  def started(documents: Data, lastModificationTime: Date): Receive = {
 
     case Status.Failure(e) =>
       // log the error
@@ -113,22 +100,17 @@ class Paper(
 
     case GetDoc(path) =>
       // get or create document
-      documents.get(path) match {
-        case Some(d) =>
-          sender ! d
-        case None =>
-          context.become(started(documents.updated(path, ""), lastModificationTime))
-          sender ! ""
-      }
+      store.forward(Read(path))
 
     case DeleteDoc(path) =>
-      documents.delete(path)
+      store.forward(Remove(path))
 
     case UpdateDoc(path, content) =>
-      context.become(started(documents.updated(path, content), Calendar.getInstance.getTime))
+      store ! Save(path, content)
+      context.become(started(Calendar.getInstance.getTime))
 
     case PersistPaper =>
-      store ! PSave(documents)
+      store ! Commit
 
     case GetLastModificationDate =>
       sender ! lastModificationTime
@@ -137,8 +119,6 @@ class Paper(
       peers -= peer.path.name
       // if all peers terminated, then terminate this paper representation
       if (peers.isEmpty) {
-        logger.info(f"Stop command received for paper $paperId")
-        store ! PSave(documents)
         context.stop(self)
       }
 

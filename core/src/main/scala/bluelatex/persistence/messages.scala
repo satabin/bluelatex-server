@@ -16,8 +16,32 @@
 package bluelatex
 package persistence
 
-case class Save(d: Data)
+import better.files.File
 
-case class Delete(p: Path)
+/** A store must take messages of this type into account. */
+sealed trait Request
 
-case class Load(p: Path)
+case class Save(path: Path, content: String) extends Request
+
+case class SaveFile(path: Path, file: File) extends Request
+
+case class Remove(path: Path) extends Request
+
+case class Read(path: Path) extends Request
+
+case object Commit extends Request
+
+case object ListAll extends Request
+
+/** A store must answer with messages of this type or an error. */
+sealed trait Response
+
+case class Saved(path: Path) extends Response
+
+case class Removed(path: Path) extends Response
+
+case class Content(path: Path, content: Option[String]) extends Response
+
+case object Committed extends Response
+
+case class AllKeys(keys: PathTree) extends Response
