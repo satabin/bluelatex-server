@@ -29,6 +29,8 @@ case class Remove(path: Path) extends Request
 
 case class Read(path: Path) extends Request
 
+case class RawRead(path: Path) extends Request
+
 case object Commit extends Request
 
 case object ListAll extends Request
@@ -41,6 +43,8 @@ case class Saved(path: Path) extends Response
 case class Removed(path: Path) extends Response
 
 case class Content(path: Path, content: Option[String]) extends Response
+
+case class RawContent(path: Path, content: Option[Array[Byte]]) extends Response
 
 case object Committed extends Response
 

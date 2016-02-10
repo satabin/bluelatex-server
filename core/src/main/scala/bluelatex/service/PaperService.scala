@@ -31,6 +31,9 @@ import spray.json._
 import better.files._
 import Cmds._
 
+import akka.http.scaladsl.model.HttpEntity
+import akka.http.scaladsl.server.directives.ContentTypeResolver
+
 trait PaperService {
   this: CoreService =>
 
@@ -62,6 +65,16 @@ trait PaperService {
                   }
                 }
               } ~
+                get {
+                  path(Segments) { path =>
+                    onSuccess((synchronizer ? (paperId -> Raw)).mapTo[RawContent]) {
+                      case RawContent(file, Some(content)) =>
+                        complete(HttpEntity(ContentTypeResolver.Default(file.last), content))
+                      case RawContent(file, None) =>
+                        reject
+                    }
+                  }
+                } ~
                 post {
                   path(Segments) { path =>
                     uploadedFile("file") {

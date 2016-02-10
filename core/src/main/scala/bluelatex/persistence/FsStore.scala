@@ -208,6 +208,19 @@ class FsStore(paperId: String) extends Actor {
           sender ! Status.Failure(e)
       }
 
+    case RawRead(file) =>
+      try {
+        val f = base / file.mkString("")
+        if (f.exists) {
+          sender ! RawContent(file, Option(f.bytes.toArray))
+        } else {
+          sender ! RawContent(file, None)
+        }
+      } catch {
+        case e: Exception =>
+          sender ! Status.Failure(e)
+      }
+
     case Commit =>
       try {
         val c = files.save()
